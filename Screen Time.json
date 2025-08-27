@@ -1,0 +1,504 @@
+{
+  "name": "Screen Time",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "screentime-csv-ingest",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "d86dbf52-eabe-4feb-b0d4-7a08f8fa71f2",
+      "name": "ScreenTime CSV Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1104, -128],
+      "webhookId": "c9f246db-c07b-42e0-a69a-5881641556ba",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ACt7IIqGcHxfTsqF",
+          "name": "Screen Time Header auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "includeEmptyCells": true
+        }
+      },
+      "id": "57b381e1-4439-4ca4-9acc-985c3e57ae1e",
+      "name": "Extract CSV Data",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [-880, -128]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process ScreenTime2CSV data for Google Sheets upsert\nconst processedItems = [];\n\nfor (const inputItem of $input.all()) {\n  const data = inputItem.json;\n  \n  // Handle different possible field names from ScreenTime2CSV\n  const appName = data['App Name'] || data['app'] || data.app || '';\n  const usage = parseInt(data['Usage'] || data['usage'] || data.usage_seconds || 0);\n  const startTime = parseInt(data['Start Time'] || data['start_time'] || data.startTime || 0);\n  const endTime = parseInt(data['End Time'] || data['end_time'] || data.endTime || 0);\n  const creationTime = parseInt(data['Creation Time'] || data['created_at'] || data.creationTime || 0);\n  const timeZone = parseInt(data['Time Zone'] || data['tz'] || data.timezone_offset || 0);\n  const deviceId = data['Device ID'] || data['device_id'] || data.deviceId || 'local';\n  const deviceModel = data['Device Model'] || data['device_model'] || data.deviceModel || '';\n  \n  // Skip empty or invalid rows\n  if (!appName || usage === 0 || startTime === 0) {\n    console.log('Skipping invalid row:', data);\n    continue;\n  }\n  \n  // Convert Unix timestamps to readable dates (handle both seconds and milliseconds)\n  const startDate = new Date(startTime > 10000000000 ? startTime : startTime * 1000);\n  const endDate = new Date(endTime > 10000000000 ? endTime : endTime * 1000);\n  const creationDate = new Date(creationTime > 10000000000 ? creationTime : creationTime * 1000);\n  \n  // Validate dates\n  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {\n    console.log('Invalid date data, skipping row:', data);\n    continue;\n  }\n  \n  // Create unique identifier for upsert (prevents duplicates)\n  const date_only = startDate.toISOString().split('T')[0];\n  const uniqueId = `${appName}_${startTime}_${deviceId}`.replace(/[^a-zA-Z0-9_-]/g, '_');\n  const ag_key = `${date_only}_${appName}`.replace(/[^a-zA-Z0-9_-]/g, '_');\n  \n  // Prepare row data for Google Sheets\n  const rowData = {\n    unique_id: uniqueId,\n    app_name: appName,\n    usage_seconds: usage,\n    start_time: startDate.toISOString(),\n    end_time: endDate.toISOString(),\n    creation_time: creationDate.toISOString(),\n    date_only,\n    ag_key,\n    timezone_offset: timeZone,\n    device_id: deviceId,\n    device_model: deviceModel,\n    processed_at: new Date().toISOString(),\n    is_weekend: [0, 6].includes(startDate.getDay()),\n    hour_of_day: startDate.getHours(),\n    day_of_week: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][startDate.getDay()],\n    week_number: getWeekNumber(startDate),\n    week: `W${startDate.getFullYear()}.${getWeekNumber(startDate)}`,\n    month_name: startDate.toLocaleString('default', { month: 'long' })\n  };\n  \n  processedItems.push({\n    json: rowData\n  });\n}\n\n// Helper function to get week number\nfunction getWeekNumber(date) {\n  const firstDayOfYear = new Date(date.getFullYear(), 0, 1);\n  const pastDaysOfYear = (date - firstDayOfYear) / 86400000;\n  return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);\n}\n\nconsole.log(`Processed ${processedItems.length} valid records from CSV`);\n\nreturn processedItems;\n"
+      },
+      "id": "d680d1aa-07a3-4587-b4d4-c40fabb8288b",
+      "name": "Process ScreenTime Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-672, -128]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1WuJNMqyRQuMVh8KCtD_x039OcLopuiRYJUUBf_M7Oz4",
+          "mode": "list",
+          "cachedResultName": "Screen Time",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1WuJNMqyRQuMVh8KCtD_x039OcLopuiRYJUUBf_M7Oz4/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Raw",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1WuJNMqyRQuMVh8KCtD_x039OcLopuiRYJUUBf_M7Oz4/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Key": "={{ $json.ag_key }}",
+            "Date": "={{ $json.min_date_only }}",
+            "App": "={{ $json.min_app_name }}",
+            "Seconds": "={{ $json.sum_usage_seconds }}",
+            "Week": "={{ $json.min_week }}"
+          },
+          "matchingColumns": ["Key"],
+          "schema": [
+            {
+              "id": "Key",
+              "displayName": "Key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Week",
+              "displayName": "Week",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "App",
+              "displayName": "App",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Seconds",
+              "displayName": "Seconds",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Discount",
+              "displayName": "Discount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Discounted Time (min)",
+              "displayName": "Discounted Time (min)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "cellFormat": "USER_ENTERED"
+        }
+      },
+      "id": "748339ab-5bee-418b-b4e8-f85ab34706bb",
+      "name": "Upsert to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [-1024, 224],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "tgzOWoojmpBe4xLy",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notExists"
+              },
+              "id": "7a0173ff-92e8-4597-a3e1-93f84e96bd5a"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9332cc17-654e-4fff-9566-8fccf144d383",
+      "name": "Check Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-784, 224]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"success\",\n  \"message\": \"ScreenTime data processed successfully\",\n  \"records_processed\": {{ $json.count_Key }},\n  \"timestamp\": \"{{ new Date().toISOString() }}\"\n}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "2e047035-a846-4389-8725-bd4c157b0357",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [-352, 128]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"error\",\n  \"message\": \"Failed to process ScreenTime data\",\n  \"error\": \"{{ $json.error || 'Unknown error occurred' }}\",\n  \"timestamp\": \"{{ new Date().toISOString() }}\"\n}",
+        "options": {
+          "responseCode": 500,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "e4f8f596-1b32-4456-abf8-edabab546079",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [-448, 288]
+    },
+    {
+      "parameters": {
+        "fieldsToSummarize": {
+          "values": [
+            {
+              "aggregation": "sum",
+              "field": "usage_seconds"
+            },
+            {
+              "aggregation": "min",
+              "field": "app_name"
+            },
+            {
+              "aggregation": "min",
+              "field": "date_only"
+            },
+            {
+              "aggregation": "min",
+              "field": "week"
+            }
+          ]
+        },
+        "fieldsToSplitBy": "ag_key",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.summarize",
+      "typeVersion": 1.1,
+      "position": [-496, -128],
+      "id": "fc93811d-3a84-46de-b596-9262fe550d1e",
+      "name": "Summarize"
+    },
+    {
+      "parameters": {
+        "fieldsToSummarize": {
+          "values": [
+            {
+              "aggregation": "min",
+              "field": "min_date_only"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.summarize",
+      "typeVersion": 1.1,
+      "position": [-320, -80],
+      "id": "a19337f3-cb4e-43d5-8a35-a7b10697a0ff",
+      "name": "Get min date"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "advanced": true,
+        "mergeByFields": {
+          "values": [
+            {
+              "field1": "min_date_only",
+              "field2": "min_min_date_only"
+            }
+          ]
+        },
+        "joinMode": "keepNonMatches",
+        "outputDataFrom": "input1",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [-176, -128],
+      "id": "71caf1bb-4995-4299-b5db-78f9115e8459",
+      "name": "Drop first day"
+    },
+    {
+      "parameters": {
+        "sortFieldsUi": {
+          "sortField": [
+            {
+              "fieldName": "min_date_only"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.sort",
+      "typeVersion": 1,
+      "position": [32, -128],
+      "id": "a293355e-5456-4441-8e16-37187678481f",
+      "name": "Sort"
+    },
+    {
+      "parameters": {
+        "fieldsToSummarize": {
+          "values": [
+            {
+              "field": "Key"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.summarize",
+      "typeVersion": 1.1,
+      "position": [-544, 128],
+      "id": "b6bd724a-3514-42a9-a04f-d6efa0d20e48",
+      "name": "Count"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "ScreenTime CSV Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract CSV Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract CSV Data": {
+      "main": [
+        [
+          {
+            "node": "Process ScreenTime Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process ScreenTime Data": {
+      "main": [
+        [
+          {
+            "node": "Summarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Check Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Success": {
+      "main": [
+        [
+          {
+            "node": "Count",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize": {
+      "main": [
+        [
+          {
+            "node": "Get min date",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Drop first day",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get min date": {
+      "main": [
+        [
+          {
+            "node": "Drop first day",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Drop first day": {
+      "main": [
+        [
+          {
+            "node": "Sort",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sort": {
+      "main": [
+        [
+          {
+            "node": "Upsert to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Success Response": {
+      "main": [[]]
+    },
+    "Count": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "d7d3dc7b-163d-42d8-be13-1e0deed86b76",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "49264a8168a715a280e54db725f49f45ea4ffa124d9f2ee863e545a353306be8"
+  },
+  "id": "lSEUQb5SHA0RKxcF",
+  "tags": []
+}
