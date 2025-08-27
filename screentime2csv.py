@@ -2,9 +2,18 @@ import os
 import sqlite3
 import argparse
 import csv
+import time
 from io import StringIO
 
-knowledge_db = os.path.expanduser("~/Library/Application Support/Knowledge/knowledgeC.db")
+knowledge_root = os.path.expanduser("~")
+knowledge_db = os.path.join(
+    knowledge_root,
+    "Library",
+    "Application Support",
+    "Knowledge",
+    "knowledgeC.db",
+)
+
 
 def query_database(last_created_at):
     # Check if knowledgeC.db exists
@@ -14,7 +23,12 @@ def query_database(last_created_at):
 
     # Check if knowledgeC.db is readable
     if not os.access(knowledge_db, os.R_OK):
-        print("The knowledgeC.db at %s is not readable.\nPlease grant full disk access to the application running the script (e.g. Terminal, iTerm, VSCode etc.)." % (knowledge_db))
+        msg = (
+            "The knowledgeC.db at %s is not readable.\n"
+            "Please grant full disk access to the app running the script "
+            "(e.g. Terminal, iTerm, VSCode etc.)."
+        )
+        print(msg % (knowledge_db))
         exit(1)
 
     # Connect to the SQLite database
@@ -22,7 +36,8 @@ def query_database(last_created_at):
         cur = con.cursor()
 
         # Execute the SQL query to fetch data
-        # Modified from https://rud.is/b/2019/10/28/spelunking-macos-screentime-app-usage-with-r/
+        # Modified from
+        # https://rud.is/b/2019/10/28/spelunking-macos-screentime-app-usage-with-r/
         query = """
         SELECT
             ZOBJECT.ZVALUESTRING AS "app",
@@ -55,48 +70,104 @@ def query_database(last_created_at):
         # Fetch all rows from the result set
         return cur.fetchall()
 
+
 def write_to_csv(rows, output, delimiter):
     writer = csv.writer(output, delimiter=delimiter, quoting=csv.QUOTE_MINIMAL)
-    writer.writerow(["app", "usage", "start_time", "end_time", "created_at", "tz", "device_id", "device_model"])
+    writer.writerow(
+        [
+            "app",
+            "usage",
+            "start_time",
+            "end_time",
+            "created_at",
+            "tz",
+            "device_id",
+            "device_model",
+        ]
+    )
     writer.writerows(rows)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Query knowledge database")
-    parser.add_argument("-o", "--output", help="Output file path (default: stdout)")
-    parser.add_argument("-d", "--delimiter", default=',', help="Delimiter for output file (default: comma)")
+    parser.add_argument(
+        "-o",
+        "--output",
+        help="Output file path (default: stdout)",
+    )
+    parser.add_argument(
+        "-d",
+        "--delimiter",
+        default=",",
+        help="Delimiter for output file (default: comma)",
+    )
+    parser.add_argument(
+        "-m",
+        "--max-age-days",
+        type=int,
+        help="Max age of data to fetch (days)",
+    )
     args = parser.parse_args()
 
     # Prepare output format
     delimiter = args.delimiter.replace("\\t", "\t")
 
     # Check if file exists to decide whether to write headers
-    file_exists = os.path.isfile(args.output)
-    last_created_at_file = args.output + ".last"
-    if os.path.isfile(last_created_at_file):
-        with open(last_created_at_file, "r") as f:
-            last_created_at = float(f.read().strip())
+    file_exists = os.path.isfile(args.output) if args.output else False
+    if args.output:
+        last_created_at_file = args.output + ".last"
+        if os.path.isfile(last_created_at_file):
+            with open(last_created_at_file, "r", encoding="utf-8") as f:
+                last_created_at = float(f.read().strip())
+        else:
+            last_created_at = 0.0
     else:
+        last_created_at_file = None
         last_created_at = 0.0
 
+    # If a maximum age is specified, restrict the lower bound accordingly
+    if args.max_age_days is not None and args.max_age_days >= 0:
+        max_age_cutoff = time.time() - (args.max_age_days * 86400)
+        cutoff_created_at = max(last_created_at, max_age_cutoff)
+    else:
+        cutoff_created_at = last_created_at
+
     # Query the database and fetch the rows
-    rows = query_database(last_created_at)
+    rows = query_database(cutoff_created_at)
 
     # Update the last created at time
-    if rows:
-        with open(last_created_at_file, "w") as f:
-            f.write(str(rows[0][4]))  # rows[0][4] is the "created_at" of the first row
+    if rows and last_created_at_file:
+        # rows[0][4] is the "created_at" of the first row
+        with open(last_created_at_file, "w", encoding="utf-8") as f:
+            f.write(str(rows[0][4]))
 
     # Write the output to a file or print to stdout
     if args.output:
-        with open(args.output, "a", newline='') as f:
-            writer = csv.writer(f, delimiter=delimiter, quoting=csv.QUOTE_MINIMAL)
+        with open(args.output, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(
+                f,
+                delimiter=delimiter,
+                quoting=csv.QUOTE_MINIMAL,
+            )
             if not file_exists:
-                writer.writerow(["app", "usage", "start_time", "end_time", "created_at", "tz", "device_id", "device_model"])
+                writer.writerow(
+                    [
+                        "app",
+                        "usage",
+                        "start_time",
+                        "end_time",
+                        "created_at",
+                        "tz",
+                        "device_id",
+                        "device_model",
+                    ]
+                )
             writer.writerows(rows)
     else:
         output = StringIO()
         write_to_csv(rows, output, delimiter)
         print(output.getvalue())
+
 
 if __name__ == "__main__":
     main()

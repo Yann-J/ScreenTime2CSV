@@ -6,7 +6,7 @@ if [ -z "${DOMAIN}" ] || [ -z "${SECRET}" ]; then
     exit 1
 fi
 
-FOLDER="/tmp"
+FOLDER="$(mktemp -d)"
 WEBHOOK_URL="https://${DOMAIN}/webhook$([ "${DEBUG:-false}" = "true" ] && echo "-test" || echo "")/screentime-csv-ingest"
 
 echo "Running in debug mode: ${DEBUG:-false} (set DEBUG=true to enable)"
@@ -14,7 +14,7 @@ echo "Webhook URL: ${WEBHOOK_URL}"
 echo "Writing to: ${FOLDER}/data.csv"
 
 # Extract data
-python3 screentime2csv.py -o "${FOLDER}/data.csv"
+python3 screentime2csv.py -o "${FOLDER}/data.csv" -m "${MAX_AGE:-10}"
 
 # Upload to n8n
 curl -X POST \
